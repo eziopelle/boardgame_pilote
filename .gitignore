@@ -30,3 +30,6 @@ doc/api/
 
 # Local env
 .env
+
+# FVM Version Cache
+.fvm/
