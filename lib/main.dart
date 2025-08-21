@@ -3,11 +3,11 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_page.dart';
+import 'home_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1) Charger les variables d'env
   await dotenv.load(fileName: '.env');
   final url = dotenv.env['SUPABASE_URL'];
   final anon = dotenv.env['SUPABASE_ANON_KEY'];
@@ -15,11 +15,9 @@ Future<void> main() async {
     throw Exception('SUPABASE_URL / SUPABASE_ANON_KEY manquants dans .env');
   }
 
-  // 2) Initialiser Supabase (à faire AVANT runApp)
   await Supabase.initialize(
     url: url,
     anonKey: anon,
-    // PKCE recommandé; marche web/mobile
     authOptions: const FlutterAuthClientOptions(authFlowType: AuthFlowType.pkce),
   );
 
@@ -36,16 +34,49 @@ class BoardgamePiloteApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        fontFamily: 'SF Pro', // prend la police du système si non dispo
+        fontFamily: 'SF Pro',
         colorSchemeSeed: const Color(0xFF6C4CF1),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(28)),
-          ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        ),
       ),
-      home: const AuthPage(),
+      home: const _AuthGate(),
+    );
+  }
+}
+
+/// Décide quelle page afficher selon l’état d’auth
+class _AuthGate extends StatefulWidget {
+  const _AuthGate();
+
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> {
+  late final Stream<AuthState> _authStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _authStream = Supabase.instance.client.auth.onAuthStateChange;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = Supabase.instance.client.auth.currentSession;
+
+    return StreamBuilder<AuthState>(
+      stream: _authStream,
+      initialData: session != null
+          ? AuthState(AuthChangeEvent.signedIn, session)
+          : AuthState(AuthChangeEvent.signedOut, null),
+      builder: (context, snapshot) {
+        final state = snapshot.data;
+
+        if (state == null || state.event == AuthChangeEvent.signedOut) {
+          return const AuthPage();
+        } else {
+          return const HomePage();
+        }
+      },
     );
   }
 }
