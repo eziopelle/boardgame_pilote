@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'home_page.dart';
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
@@ -11,6 +15,7 @@ class AuthPage extends StatefulWidget {
 
 class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin {
   late final TabController _tab;
+
   final _loginEmail = TextEditingController();
   final _loginPass = TextEditingController();
   final _signupEmail = TextEditingController();
@@ -18,15 +23,32 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
   final _signupConfirm = TextEditingController();
 
   bool _loading = false;
+  StreamSubscription<AuthState>? _authSub;
+
+  SupabaseClient get _supa => Supabase.instance.client;
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
+
+    // 1) Si une session existe déjà, pars direct sur Home
+    final session = _supa.auth.currentSession;
+    if (session != null) {
+      _goHome();
+    }
+
+    // 2) Écoute les changements d'auth (PKCE/OAuth/email)
+    _authSub = _supa.auth.onAuthStateChange.listen((state) {
+      if (state.session != null && mounted) {
+        _goHome();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _tab.dispose();
     _loginEmail.dispose();
     _loginPass.dispose();
@@ -35,9 +57,6 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     _signupConfirm.dispose();
     super.dispose();
   }
-
-  // Helpers
-  SupabaseClient get _supa => Supabase.instance.client;
 
   void _toast(String msg) {
     if (!mounted) return;
@@ -58,6 +77,25 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     }
   }
 
+  // URL de redirection pour OAuth (gère GitHub Pages /boardgame_pilote/)
+  Uri _redirectUri() {
+    if (kIsWeb) {
+      final u = Uri.base;
+      final path = u.path.endsWith('/') ? u.path : '${u.path}/';
+      // remove query (?code=...) pour éviter les boucles visuelles
+      return u.replace(path: path, queryParameters: {});
+    }
+    // Mobile/Desktop : mets ton deeplink si tu en utilises
+    return Uri.parse('https://eziopelle.github.io/boardgame_pilote/');
+  }
+
+  void _goHome() {
+    // Remplace la page d’auth par Home
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomePage()),
+    );
+  }
+
   // === LOGIQUES ===
 
   Future<void> _loginEmailPassword() async {
@@ -68,10 +106,8 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
       return;
     }
     await _withLoading(() async {
-      await _supa.auth.signInWithPassword(email: email, password: pass);
-      // si ok, l’AuthState listener dans ton app redirigera (ou fais-le ici) :
-      if (!mounted) return;
-      Navigator.of(context).maybePop();
+      final res = await _supa.auth.signInWithPassword(email: email, password: pass);
+      if (res.session != null && mounted) _goHome();
     });
   }
 
@@ -94,7 +130,6 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     await _withLoading(() async {
       await _supa.auth.signUp(email: email, password: pass);
       _toast('Compte créé. Vérifie ton e-mail si la confirmation est activée.');
-      // option: basculer sur l’onglet Connexion
       _tab.animateTo(0);
     });
   }
@@ -106,27 +141,32 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
       return;
     }
     await _withLoading(() async {
-      // ajoute ton URL de redirection si tu en as une
-      await _supa.auth.resetPasswordForEmail(email);
+      await _supa.auth.resetPasswordForEmail(email, redirectTo: _redirectUri().toString());
       _toast('Email de réinitialisation envoyé si le compte existe.');
     });
   }
 
   Future<void> _oauthGoogle() async {
     await _withLoading(() async {
-      await _supa.auth.signInWithOAuth(OAuthProvider.google);
+      await _supa.auth.signInWithOAuth(
+        OAuthProvider.google,
+        // Très important pour le web & sous-chemin GitHub Pages
+        redirectTo: _redirectUri().toString(),
+      );
     });
   }
 
   Future<void> _oauthApple() async {
     await _withLoading(() async {
-      await _supa.auth.signInWithOAuth(OAuthProvider.apple);
+      await _supa.auth.signInWithOAuth(
+        OAuthProvider.apple,
+        redirectTo: _redirectUri().toString(),
+      );
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // Responsive breakpoint (layout desktop/tablette/tel)
     final isWide = MediaQuery.of(context).size.width >= 900;
 
     return Scaffold(
@@ -201,7 +241,6 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
                 )
               else
                 _CompactStack(
-                  // Mobile: image en haut, formulaire en bas
                   imageUrl:
                       'https://images.unsplash.com/photo-1465447142348-e9952c393450?q=80&w=1974&auto=format&fit=crop',
                   tab: _tab,
@@ -290,7 +329,6 @@ class _LoginFormState extends State<_LoginForm> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -380,7 +418,6 @@ class _SignupFormState extends State<_SignupForm> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -488,7 +525,6 @@ class _GoogleLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Petit "G" minimaliste
     return Container(
       width: 18,
       height: 18,
@@ -513,7 +549,6 @@ class _RightImagePanel extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           Image.network(imageUrl, fit: BoxFit.cover),
-          // léger overlay pour un rendu propre
           Container(color: Colors.black.withOpacity(0.05)),
         ],
       ),

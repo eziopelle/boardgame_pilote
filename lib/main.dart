@@ -1,24 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_page.dart';
 import 'home_page.dart';
 
+// ➜ Passe tes clés au build avec --dart-define (voir commande plus bas)
+const _supabaseUrl  = String.fromEnvironment('SUPABASE_URL');
+const _supabaseAnon = String.fromEnvironment('SUPABASE_ANON_KEY');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: '.env');
-  final url = dotenv.env['SUPABASE_URL'];
-  final anon = dotenv.env['SUPABASE_ANON_KEY'];
-  if (url == null || anon == null) {
-    throw Exception('SUPABASE_URL / SUPABASE_ANON_KEY manquants dans .env');
+  if (_supabaseUrl.isEmpty || _supabaseAnon.isEmpty) {
+    throw Exception(
+      'Manque SUPABASE_URL / SUPABASE_ANON_KEY (utilise --dart-define au build).',
+    );
   }
 
   await Supabase.initialize(
-    url: url,
-    anonKey: anon,
-    authOptions: const FlutterAuthClientOptions(authFlowType: AuthFlowType.pkce),
+    url: _supabaseUrl,
+    anonKey: _supabaseAnon,
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.pkce, // nécessaire pour le Web (OAuth)
+    ),
   );
 
   runApp(const BoardgamePiloteApp());
@@ -42,7 +46,7 @@ class BoardgamePiloteApp extends StatelessWidget {
   }
 }
 
-/// Décide quelle page afficher selon l’état d’auth
+/// Porte d’entrée: ne décide QUE selon la présence d’une session.
 class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
@@ -61,21 +65,22 @@ class _AuthGateState extends State<_AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    final session = Supabase.instance.client.auth.currentSession;
-
     return StreamBuilder<AuthState>(
       stream: _authStream,
-      initialData: session != null
-          ? AuthState(AuthChangeEvent.signedIn, session)
-          : AuthState(AuthChangeEvent.signedOut, null),
       builder: (context, snapshot) {
-        final state = snapshot.data;
+        // 🔑 Toujours dériver de la session réelle
+        final session =
+            snapshot.data?.session ?? Supabase.instance.client.auth.currentSession;
 
-        if (state == null || state.event == AuthChangeEvent.signedOut) {
-          return const AuthPage();
-        } else {
-          return const HomePage();
+        // Splash la toute 1ère frame si rien n’est prêt
+        if (!snapshot.hasData && session == null) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
+
+        // Route uniquement sur la présence de session
+        return session == null ? const AuthPage() : const HomePage();
       },
     );
   }
