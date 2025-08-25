@@ -27,22 +27,32 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
 
   SupabaseClient get _supa => Supabase.instance.client;
 
+  // URL de redirection pour OAuth (gère GitHub Pages /boardgame_pilote/)
+  Uri _redirectUri() {
+    if (kIsWeb) {
+      final u = Uri.base;
+      final path = u.path.endsWith('/') ? u.path : '${u.path}/';
+      // ❌ NE PAS supprimer la query ici
+      return u.replace(path: path);
+    }
+    // Mobile/Desktop : mets ton deeplink si tu en utilises
+    return Uri.parse('https://eziopelle.github.io/boardgame_pilote/');
+  }
+
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
 
-    // 1) Si une session existe déjà, pars direct sur Home
-    final session = _supa.auth.currentSession;
-    if (session != null) {
-      _goHome();
-    }
+    final s = _supa.auth.currentSession;
+    debugPrint('session? ${Supabase.instance.client.auth.currentSession != null}'); // Diagnostic express
 
-    // 2) Écoute les changements d'auth (PKCE/OAuth/email)
+    if (s != null) _goHome();
+
     _authSub = _supa.auth.onAuthStateChange.listen((state) {
-      if (state.session != null && mounted) {
-        _goHome();
-      }
+      debugPrint('[auth] event=${state.event} hasSession=${state.session != null}'); // Diagnostic express
+      // ➜ dès qu’une session existe (PKCE/Email/OAuth), bascule Home
+      if (state.session != null && mounted) _goHome();
     });
   }
 
@@ -77,18 +87,6 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     }
   }
 
-  // URL de redirection pour OAuth (gère GitHub Pages /boardgame_pilote/)
-  Uri _redirectUri() {
-    if (kIsWeb) {
-      final u = Uri.base;
-      final path = u.path.endsWith('/') ? u.path : '${u.path}/';
-      // remove query (?code=...) pour éviter les boucles visuelles
-      return u.replace(path: path, queryParameters: {});
-    }
-    // Mobile/Desktop : mets ton deeplink si tu en utilises
-    return Uri.parse('https://eziopelle.github.io/boardgame_pilote/');
-  }
-
   void _goHome() {
     // Remplace la page d’auth par Home
     Navigator.of(context).pushReplacement(
@@ -107,7 +105,7 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     }
     await _withLoading(() async {
       final res = await _supa.auth.signInWithPassword(email: email, password: pass);
-      if (res.session != null && mounted) _goHome();
+      if (res.session != null && mounted) _goHome(); // ✅ pas de maybePop()
     });
   }
 
@@ -150,8 +148,7 @@ class _AuthPageState extends State<AuthPage> with SingleTickerProviderStateMixin
     await _withLoading(() async {
       await _supa.auth.signInWithOAuth(
         OAuthProvider.google,
-        // Très important pour le web & sous-chemin GitHub Pages
-        redirectTo: _redirectUri().toString(),
+        redirectTo: _redirectUri().toString(), // ✅ essentiel en Web sous /boardgame_pilote/
       );
     });
   }

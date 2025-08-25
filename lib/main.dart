@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'auth_page.dart';
 import 'home_page.dart';
 
-// ➜ Passe tes clés au build avec --dart-define (voir commande plus bas)
 const _supabaseUrl  = String.fromEnvironment('SUPABASE_URL');
 const _supabaseAnon = String.fromEnvironment('SUPABASE_ANON_KEY');
 
@@ -12,16 +11,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (_supabaseUrl.isEmpty || _supabaseAnon.isEmpty) {
-    throw Exception(
-      'Manque SUPABASE_URL / SUPABASE_ANON_KEY (utilise --dart-define au build).',
-    );
+    throw Exception('SUPABASE_URL / SUPABASE_ANON_KEY manquants (utilise --dart-define).');
   }
 
   await Supabase.initialize(
     url: _supabaseUrl,
     anonKey: _supabaseAnon,
     authOptions: const FlutterAuthClientOptions(
-      authFlowType: AuthFlowType.pkce, // nécessaire pour le Web (OAuth)
+      authFlowType: AuthFlowType.pkce, // indispensable pour le Web
     ),
   );
 
@@ -46,7 +43,6 @@ class BoardgamePiloteApp extends StatelessWidget {
   }
 }
 
-/// Porte d’entrée: ne décide QUE selon la présence d’une session.
 class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
@@ -68,18 +64,15 @@ class _AuthGateState extends State<_AuthGate> {
     return StreamBuilder<AuthState>(
       stream: _authStream,
       builder: (context, snapshot) {
-        // 🔑 Toujours dériver de la session réelle
+        // ⚠️ toujours décider sur la *session*, pas l’event
         final session =
             snapshot.data?.session ?? Supabase.instance.client.auth.currentSession;
 
-        // Splash la toute 1ère frame si rien n’est prêt
+        // Splash la toute première frame si rien n’est prêt
         if (!snapshot.hasData && session == null) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        // Route uniquement sur la présence de session
         return session == null ? const AuthPage() : const HomePage();
       },
     );
